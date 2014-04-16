@@ -139,7 +139,7 @@ class EventCircle(Circle):
 
 class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
 
-	def __init__(self,ip = "localhost", port = 1883, clientId = "Plugwise2MQTT", user = "driver", password = "1234", prefix = "Plugwise", ):
+	def __init__(self,ip = "localhost", port = 1883, clientId = "Plugwise2MQTT", user = "driver", password = "1234", prefix = "Plugwise", device = "/dev/ttyUSB0"):
 
 		mosquitto.Mosquitto.__init__(self,clientId)
 
@@ -153,7 +153,7 @@ class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
     		if user != None:
     			self.username_pw_set(user,password)
 
-		self.will_set( topic =  self.prefix, payload="Offline", qos=1, retain=True)
+		self.will_set( topic =  "system/" + self.prefix, payload="Offline", qos=1, retain=True)
     		print "Connecting"
     		self.connect(ip,keepalive=10)
     		self.subscribe(self.prefix + "/#", 0)
@@ -161,51 +161,20 @@ class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
     		self.on_message = self.mqtt_on_message
     		self.publish(topic = "system/"+ self.prefix, payload="Online", qos=1, retain=True)
     		
-    		# 1 wire stuff
-    		self.owserver = owserver
-    		self.owport = owport
-    		
-    		
-    		#Setup.
-
-    		self.Updates = {}
 
 		#thread.start_new_thread(self.ControlLoop,())	
 		self.loop_start()
 		
-		self.config = ConfigParser.RawConfigParser(allow_no_value=True)
-		self.config.read(ConfigFile)
-
-		Name = self.config.get("PlugwiseOptions","Name")
-		ip = self.config.get("MQTTServer","Address")
-		port = self.config.get("MQTTServer","Port")
-		Server = (ip,int(port))
-		device = self.config.get("PlugwiseOptions","PlugwisePort")
-
-	
+		
+		
+		#Plugwise stuff
 		Stick.__init__(self,device,2)
-
-		Sensors = self.config.items("PlugwiseSensors")
-
-		for Sensor in Sensors:
-			mac = Sensor[0]
-			self.AddPlug(Sensor[1],mac)
-
-		#This is the sum of several sensor feeds. 
+		
+		#The list of plugs. 
+    		self.Plugs = []
+    		
+    		#This is the sum of several sensor feeds. 
 		self.VirtualMeters = []
-
-		for i in range(1,30):
-			SectionName = "VirtualPlugwiseMeter%i"%i
-
-			if self.config.has_section(SectionName):
-				items = self.config.items(SectionName)
-
-				for item in items:
-					if item[0] == "name":
-						Name = item[1]
-					elif item[0] == "meters":
-						Meters = item[1].replace(" ","").split(",")
-						self.AddVirtualMeter(Name,Meters)
 						
 		return
 
@@ -325,6 +294,56 @@ class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
 
 
 if __name__ == '__main__':
+	
+	try:
+		ConfigFile = sys.argv[1]
+	except:
+		ConfigFile = ""
 
-	EventHandler = OwEventHandler()
+	try:
+		f = open(ConfigFile,"r")
+		f.close()
+	except:
+		print "No valid config file supplied as argument!"
+		
+	config = ConfigParser.RawConfigParser(allow_no_value=True)
+	config.read(ConfigFile)
+	
+	
+	#Load basic config. 
+	Name = config.get("PlugwiseOptions","Name")
+	ip = config.get("MQTTServer","Address")
+	port = config.get("MQTTServer","Port")
+	user = config.get("MQTTServer","User")
+	password = config.get("MQTTServer","Password")
+	prefix = config.get("MQTTServer","Prefix")
+	device = config.get("PlugwiseOptions","PlugwisePort")
+	
+	
+	#Create eventhandler
+	EventHandler = PlugwiseEventHandler(ip, port, Name, user, password, prefix, device)
+
+	#Add sensors
+	Sensors = config.items("PlugwiseSensors")
+
+		for Sensor in Sensors:
+			mac = Sensor[0]
+			EventHandler.AddPlug(Sensor[1],mac)
+
+	#Add virtualmeters i.e. the sum of several sensor feeds. 
+	for i in range(1,30):
+		SectionName = "VirtualPlugwiseMeter%i"%i
+
+		if config.has_section(SectionName):
+			items = config.items(SectionName)
+
+			for item in items:
+				if item[0] == "name":
+					Name = item[1]
+				elif item[0] == "meters":
+					Meters = item[1].replace(" ","").split(",")
+					EventHandler.AddVirtualMeter(Name,Meters)
+
+	
+	
 	EventHandler.PollOwServer()
