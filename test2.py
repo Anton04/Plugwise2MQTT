@@ -161,10 +161,10 @@ class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
     		self.on_message = self.mqtt_on_message
     		self.publish(topic = "system/"+ self.prefix, payload="Online", qos=1, retain=True)
     		
+    		self.Updates = {}
 
 		#thread.start_new_thread(self.ControlLoop,())	
 		self.loop_start()
-		
 		
 		
 		#Plugwise stuff
@@ -199,101 +199,86 @@ class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
     	
     		return
     	
-    	def ControlLoop(self):
-    		# schedule the client loop to handle messages, etc.
-      		self.loop_forever()
-		print "Closing connection to MQTT"
-        	time.sleep(1)
-        		
-        def PollOwServer(self):
-        	self.root = ownet.Sensor("/",self.owserver,self.owport)
-        	self.sensorlist = self.root.sensorList()
-        	
-        	#If there is no sensors we probably failied. 
-		if len(self.sensorlist) < 1:
-			return False
+    	def PollAndSendEvents(self,delay):
 
-		self.CheckSensors(self.sensorlist,True)
+		while(self.running):
+			start = time.time()
+			Events = self.FindEvents()
 
-		self.alarm = ownet.Sensor("/alarm",self.owserver,self.owport)
-		self.alarmlist = self.GetSensorsFromNameList(self.alarm.entryList())
+			#for event in Events:
+				#print event
+			#	self.SendEventDirectToSocket(event[1],"METER_EVENT",event[0],str(event[2]))
 
-		while(True):
-			self.CheckSensors(self.alarmlist,False)
-			self.alarmlist = self.GetSensorsFromNameList(self.alarm.entryList())
 
-	def GetSensorsFromNameList(self,list):
+			wait_time = delay - (time.time() - start)
+			#print wait_time
+			if wait_time > 0:
+				time.sleep(wait_time)
+			#print "tick!"
 
-		sensorlist = []
+		return
+	
+		
+	def FindEvents(self):
+		Events = []
 
-		for sensor in self.sensorlist:
-			try:
-				id = str(sensor.family) +"."+sensor.id	
-			except:
+		#Total power fix
+		TotalPower =0
+		Count = 0
+		TotalTime = 0
+		starttime = time.time()		
+
+		for plug in self.Plugs:
+			change = plug.GetChange()
+
+			if change == -1:
+				#Events.append((plug.Name,time.time(),"Offline","",""))
+				msg = json.dumps({"time":time.time(),"value":"Offline"})
+
+				topic = self.prefix + "/"+ plug.name + "/status"
+                		self.publish(topic,msg,1)
 				continue
 
-			if id in list:
-				sensorlist.append(sensor)
+			if change == None:
+				continue
 
-		#print sensorlist
 
-		return sensorlist
+			#Events.append((plug.Name,change[0],change[1],change[2]))
+			msg = json.dumps({"time":time.time(),"value":change[0]})
 
-	def Update(self,topic,value):
+			topic = self.prefix + "/"+ plug.name + "/power" 
+                	self.publish(topic,msg,1)
 
-                #Filter already sent stuff. 
-                if topic in self.Updates:
-                        if value == self.Updates[topic]:
-				#print "Rejected repeated message!"
-                                return False
+			for VirtualMeter in self.VirtualMeters:
+				VirtualMeter.Update(plug.Name,change[1])
+				
 
-		self.Updates[topic] = value
+		for VirtualMeter in self.VirtualMeters:
+			change = VirtualMeter.GetChange()
+			if change == None:
+				continue
+			
+			#Events.append((VirtualMeter.Name,time.time(),change,"0","0"))
+			msg = json.dumps({"time":time.time(),"value":change})
 
-		#Create json msg
-                timestamp = time.time()
-                msg = json.dumps({"time":timestamp,"value":value})
+			topic = self.prefix + "/"+ VirtualMeter.Name + "/power" 
+                	self.publish(topic,msg,1)
 
-		#print "New event: " + topic
-                self.publish(topic,msg,1)
+		#Print the time it took
+		looptime = time.time() - starttime
+		if looptime > 2:
+			print "WARNING! Loop time %f s"	% (looptime)	
+
+		return 
+
+
                 
-                return True
-                
-        def UpdateDS2406(self,sensor, init = False):
-        	
-        	id = str(sensor.family) +"/"+ str(sensor.id)
-        	values = sensor.sensed_ALL.split(",")
-		trigger = sensor.latch_ALL.split(",")
-        	
-        	#Loop trough pins
-        	for i in range(0,len(values)):
-        		topic = self.prefix+"/"+id+"/"+str(i)
-        		value = values[i]
-        	
-        		self.Update(topic,value)
-        		
-        	sensor.latch_BYTE = 0
-        	
-        	if init:
-        		if not sensor.set_alarm == 311:
-				sensor.set_alarm = 311		
-        		
-        	return
-
-	def CheckSensors(self,sensorlist,init=False):
-		for sensor in sensorlist:
-			if not hasattr(sensor,"type"):
-				continue
-
-			stype = sensor.type
-			if stype == "DS2406":
-				self.UpdateDS2406(sensor,init)
-			else:
-				continue
-
-		return		
 
 
 if __name__ == '__main__':
+	
+	
+	#Load config file... 
 	
 	try:
 		ConfigFile = sys.argv[1]
@@ -345,5 +330,6 @@ if __name__ == '__main__':
 					EventHandler.AddVirtualMeter(Name,Meters)
 
 	
+	EventHandler..PollAndSendEvents(2)
 	
-	EventHandler.PollOwServer()
+	
