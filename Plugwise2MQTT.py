@@ -135,7 +135,50 @@ class EventCircle(Circle):
 	def UpdateEnergyHistory(self):
 		return
 
+class VirtualMeter:
+	def __init__(self,Name,Meters):
+		self.Name = Name
+		self.Meters = {}
 
+		for Meter in Meters:
+			#Meter = Meter.strip(" ")
+			self.Meters[Meter] = 0.0
+
+		self.LastPowerValue = 0.0
+
+		self.Changed = False
+
+		return
+
+	def Update(self,Meter,Value):
+		if self.Meters.has_key(Meter):
+			#if Value == "Offline":
+			#	return True
+			self.Meters[Meter] = Value
+			self.Changed = True
+			return True
+		return False
+
+	def GetChange(self):
+		if self.Changed:
+			Power = 0.0
+			for Meter in self.Meters:
+				try:
+					Power += self.Meters[Meter]
+				except:
+					return "Offline"
+			self.Changed = False
+
+			if self.LastPowerValue == Power:
+				return None
+
+			self.LastPowerValue = Power
+
+			return Power
+
+		return None
+		
+		
 
 class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
 
