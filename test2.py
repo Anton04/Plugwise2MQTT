@@ -137,9 +137,9 @@ class EventCircle(Circle):
 
 
 
-class OwEventHandler(mosquitto.Mosquitto):
+class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
 
-	def __init__(self,ip = "localhost", port = 1883, clientId = "1W2MQTT", user = "driver", password = "1234", prefix = "1-wire",owserver = "127.0.0.1", owport = 4304):
+	def __init__(self,ip = "localhost", port = 1883, clientId = "Plugwise2MQTT", user = "driver", password = "1234", prefix = "Plugwise", ):
 
 		mosquitto.Mosquitto.__init__(self,clientId)
 
@@ -153,7 +153,7 @@ class OwEventHandler(mosquitto.Mosquitto):
     		if user != None:
     			self.username_pw_set(user,password)
 
-		self.will_set( topic = "system/" + self.prefix, payload="Offline", qos=1, retain=True)
+		self.will_set( topic =  self.prefix, payload="Offline", qos=1, retain=True)
     		print "Connecting"
     		self.connect(ip,keepalive=10)
     		self.subscribe(self.prefix + "/#", 0)
@@ -172,8 +172,54 @@ class OwEventHandler(mosquitto.Mosquitto):
 
 		#thread.start_new_thread(self.ControlLoop,())	
 		self.loop_start()
+		
+		self.config = ConfigParser.RawConfigParser(allow_no_value=True)
+		self.config.read(ConfigFile)
 
-    		return
+		Name = self.config.get("PlugwiseOptions","Name")
+		ip = self.config.get("MQTTServer","Address")
+		port = self.config.get("MQTTServer","Port")
+		Server = (ip,int(port))
+		device = self.config.get("PlugwiseOptions","PlugwisePort")
+
+	
+		Stick.__init__(self,device,2)
+
+		Sensors = self.config.items("PlugwiseSensors")
+
+		for Sensor in Sensors:
+			mac = Sensor[0]
+			self.AddPlug(Sensor[1],mac)
+
+		#This is the sum of several sensor feeds. 
+		self.VirtualMeters = []
+
+		for i in range(1,30):
+			SectionName = "VirtualPlugwiseMeter%i"%i
+
+			if self.config.has_section(SectionName):
+				items = self.config.items(SectionName)
+
+				for item in items:
+					if item[0] == "name":
+						Name = item[1]
+					elif item[0] == "meters":
+						Meters = item[1].replace(" ","").split(",")
+						self.AddVirtualMeter(Name,Meters)
+						
+		return
+
+	def AddVirtualMeter(self,Name,Meters):
+		self.VirtualMeters.append(VirtualMeter(Name,Meters))
+		print "Added virtual meter: %s" % Name
+		return 
+
+        def AddPlug(self,name,mac):
+        	Plug = EventCircle(mac, self)
+		Plug.Name = name
+        	self.Plugs.append(Plug)
+		print "Added sensor: %s" % Plug.Name
+		return
     		
     	def mqtt_on_connect(self, selfX,mosq, result):
     		print "MQTT connected!"
