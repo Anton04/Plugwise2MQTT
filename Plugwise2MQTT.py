@@ -6,9 +6,10 @@ import asyncore
 from math import fabs
 #import daemon
 from plugwise import *
-import sys
+import sys,os 
 import ConfigParser
-
+import mosquitto
+import json
 
 MAX_MESSAGE_LENGTH = 1024
 
@@ -218,6 +219,8 @@ class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
     		
     		#This is the sum of several sensor feeds. 
 		self.VirtualMeters = []
+
+		self.running = True
 						
 		return
 
@@ -231,6 +234,10 @@ class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
 		Plug.Name = name
         	self.Plugs.append(Plug)
 		print "Added sensor: %s" % Plug.Name
+
+                topic = self.prefix + "/"+ Plug.mname + "/location"
+                self.publish(topic,Plug.Name,1)
+
 		return
     		
     	def mqtt_on_connect(self, selfX,mosq, result):
@@ -278,7 +285,7 @@ class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
 				#Events.append((plug.Name,time.time(),"Offline","",""))
 				msg = json.dumps({"time":time.time(),"value":"Offline"})
 
-				topic = self.prefix + "/"+ plug.name + "/status"
+				topic = self.prefix + "/"+ plug.mname + "/status"
                 		self.publish(topic,msg,1)
 				continue
 
@@ -287,9 +294,9 @@ class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
 
 
 			#Events.append((plug.Name,change[0],change[1],change[2]))
-			msg = json.dumps({"time":time.time(),"value":change[0]})
+			msg = json.dumps({"time":change[0],"value":change[1]})
 
-			topic = self.prefix + "/"+ plug.name + "/power" 
+			topic = self.prefix + "/"+ plug.mname + "/power" 
                 	self.publish(topic,msg,1)
 
 			for VirtualMeter in self.VirtualMeters:
@@ -320,20 +327,28 @@ class PlugwiseEventHandler(mosquitto.Mosquitto,Stick):
 
 if __name__ == '__main__':
 	
+
+	#Where am I 
+	path = os.path.abspath(os.path.dirname(sys.argv[0]))
 	
-	#Load config file... 
-	
+	#Load config file... 	
+
 	try:
 		ConfigFile = sys.argv[1]
 	except:
-		ConfigFile = ""
+		ConfigFile = path + "/Plugwise2MQTT.cfg"
 
 	try:
 		f = open(ConfigFile,"r")
 		f.close()
 	except:
-		print "No valid config file supplied as argument!"
-		
+		try:
+			ConfigFile = path + "/Plugwise2MQTT.cfg"
+			f = open(ConfigFile,"r")
+                	f.close()
+		except:
+			print "Please provide a valid config file! By argument or as default Plugwise2MQTT.cfg file."
+			exit(1)
 	config = ConfigParser.RawConfigParser(allow_no_value=True)
 	config.read(ConfigFile)
 	
@@ -354,9 +369,9 @@ if __name__ == '__main__':
 	#Add sensors
 	Sensors = config.items("PlugwiseSensors")
 
-		for Sensor in Sensors:
-			mac = Sensor[0]
-			EventHandler.AddPlug(Sensor[1],mac)
+	for Sensor in Sensors:
+		mac = Sensor[0]
+		EventHandler.AddPlug(Sensor[1],mac)
 
 	#Add virtualmeters i.e. the sum of several sensor feeds. 
 	for i in range(1,30):
@@ -373,6 +388,6 @@ if __name__ == '__main__':
 					EventHandler.AddVirtualMeter(Name,Meters)
 
 	
-	EventHandler..PollAndSendEvents(2)
+	EventHandler.PollAndSendEvents(2)
 	
 	
